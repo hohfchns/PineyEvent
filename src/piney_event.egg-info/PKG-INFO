@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: piney_event
-Version: 0.0.2
+Version: 0.0.3
 Summary: A tiny Event System for Python
 Author-email: Sahar Shulman <dillpickledev@gmail.com>
 Project-URL: Homepage, https://github.com/hohfchns/piney_event
@@ -8,7 +8,7 @@ Project-URL: Issues, https://github.com/hohfchns/piney_event/issues
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: BSD License
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.11
+Requires-Python: >=3.6
 Description-Content-Type: text/markdown
 License-File: LICENSE
 
