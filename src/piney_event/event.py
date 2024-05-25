@@ -5,6 +5,8 @@ class Event:
     def __init__(self):
         self.receivers: list = []
         self.ignore_error = True
+        # Alias `disconnect` to `erase`
+        self.disconnect = self.erase
     
     def connect(self, callback):
         """
