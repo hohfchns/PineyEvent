@@ -10,7 +10,7 @@ class Event:
     
     def connect(self, callback):
         """
-        :param: callback - A callable that will be called with parameters when event is emitted
+        :param callback: - A callable that will be called with parameters when event is emitted
         """
         if not callable(callback):
             raise TypeError("Tried to connect non-callable to event!")
@@ -22,7 +22,8 @@ class Event:
     
     def erase(self, callback):
         """
-        :param: callback - The callable that will be erased
+        Removes the connection to `callback`
+        :param callback: - The callable that will be erased
         """
 
         self.receivers.remove(callback)
@@ -35,7 +36,7 @@ class Event:
     
     def emit(self, *args):
         """
-        :param: args - arguments to be emitted
+        :param args: - arguments to be emitted
         """
         for i in range(len(self.receivers)):
             callback = self.receivers[i]()
