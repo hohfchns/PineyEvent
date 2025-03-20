@@ -1,6 +1,9 @@
 import weakref
 import inspect
-from typing import Callable, List, NamedTuple
+import logging
+from typing import Callable, List, NamedTuple, Optional
+
+_log = logging.getLogger(__name__)
 
 class Event:
     class ConnectFlags:
@@ -12,9 +15,10 @@ class Event:
 
     def __init__(self) -> None:
         self.receivers: List[Event.ConnectionType] = []
-        self.ignore_error = True
+        self.catch_error: bool = True
+        self.log_warn_function: Optional[Callable] = _log.warning
         # Alias `disconnect` to `erase`
-        self.disconnect = self.erase
+        self.disconnect: Callable = self.erase
     
     def connect(self, callback: Callable, flags: int = 0x0) -> None:
         """
@@ -59,11 +63,17 @@ class Event:
                 i -= 1
                 continue
 
-            if self.ignore_error:
-                try:
+            signature = inspect.signature(callback)
+            num_args = len(args)
+            num_params = len(signature.parameters)
+            will_cause_error: bool = num_params != num_args
+
+            if self.catch_error:
+                if will_cause_error:
+                    if self.log_warn_function is not None:
+                        self.log_warn_function(f"Failed to emit signal | Wrong argument count {num_args}, expected {num_params} | Provided arguments: {args}. Signature: {signature}")
+                else:
                     callback(*args)
-                except TypeError:
-                        pass
             else:
                 callback(*args)
                 
@@ -89,14 +99,15 @@ class TypedEvent(Event):
         super().emit(*args)
     
     def connect(self, callback: Callable, flags: int = 0x0) -> None:
-        callback_args = inspect.signature(callback).parameters
+        signature = inspect.signature(callback)
+        callback_args = signature.parameters
         l = len(callback_args)
         for p in callback_args:
             if p == 'self':
                 l -= 1
 
         if l != len(self.param_types):
-            raise TypeError(f"TypedEvent connect expected argument count of {len(self.param_types)}, but target has {l}. Target params: `{callback.__code__.co_varnames}`")
+            raise TypeError(f"TypedEvent connect expected argument count of {len(self.param_types)}, but target has {l}. Target signature: `{signature}`")
 
         super().connect(callback, flags)
 
@@ -127,3 +138,14 @@ if __name__ == "__main__":
     e.emit("This is working.")
     e.disconnect(test_global_cb)
     e.emit("This is not working.")
+
+    eut = Event()
+    eut.connect(to.test_cb)
+    eut.emit(1, 5)
+
+    try:
+        eut.catch_error = False
+        eut.connect(to.test_cb)
+        eut.emit(1, 5)
+    except TypeError as e:
+        print(e)
