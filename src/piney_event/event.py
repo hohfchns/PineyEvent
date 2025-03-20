@@ -1,25 +1,63 @@
 import weakref
 import inspect
 import logging
-from typing import Callable, List, NamedTuple, Optional
+from abc import ABC, abstractmethod
+from typing import Callable, List, NamedTuple, Optional, Union
+
 
 _log = logging.getLogger(__name__)
 
+
+class EventManager(ABC):
+    @abstractmethod
+    def setup(self, event: "Event") -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def emit(self, event: "Event", *args, **kwargs) -> None:
+        raise NotImplementedError
+
+    @abstractmethod
+    def delete(self, event: "Event") -> None:
+        raise NotImplementedError
+
+    def _do_emit(self, event: "Event", *args) -> None:
+        event.emit(*args, managed=False)
+
+
 class Event:
     class ConnectFlags:
-        CONNECT_ONE_SHOT: int = (1 >> 0)
+        CONNECT_ONE_SHOT: int = (1 << 0)
+        CONNECT_DIRECT: int = (1 << 1)
 
-    class ConnectionType(NamedTuple):
+    class Connection(NamedTuple):
         callback: Callable
         flags: int
 
-    def __init__(self) -> None:
-        self.receivers: List[Event.ConnectionType] = []
-        self.catch_error: bool = True
+    default_manager: Optional[EventManager] = None
+
+    def __init__(self, catch_error: bool = True, manager: Union[EventManager, bool] = True) -> None:
+        self.receivers: List[Event.Connection] = []
+        self.catch_error: bool = catch_error
         self.log_warn_function: Optional[Callable] = _log.warning
         # Alias `disconnect` to `erase`
         self.disconnect: Callable = self.erase
+
+        if isinstance(manager, bool):
+            if manager:
+                self.manager: Optional[EventManager] = Event.default_manager
+            else:
+                self.manager: Optional[EventManager] = None
+        else:
+            self.manager = manager
+
+        if self.manager is not None:
+            self.manager.setup(self)
     
+    def __del__(self) -> None:
+        if self.manager is not None:
+            self.manager.delete(self)
+
     def connect(self, callback: Callable, flags: int = 0x0) -> None:
         """
         :param callback: A callable that will be called with parameters when event is emitted
@@ -30,9 +68,9 @@ class Event:
             raise TypeError("Tried to connect non-callable to event!")
 
         if inspect.ismethod(callback):
-            self.receivers.append(Event.ConnectionType(weakref.WeakMethod(callback), flags))
+            self.receivers.append(Event.Connection(weakref.WeakMethod(callback), flags))
         else:
-            self.receivers.append(Event.ConnectionType(weakref.ref(callback), flags))
+            self.receivers.append(Event.Connection(weakref.ref(callback), flags))
     
     def erase(self, callback: Callable) -> None:
         """
@@ -52,35 +90,52 @@ class Event:
         """
         self.receivers.clear()
     
-    def emit(self, *args) -> None:
+    def emit(self, *args, **kwargs) -> None:
         """
         :param args: arguments to be emitted
         """
+
+        if self.manager is None:
+            managed = False
+        else:
+            if "managed" in kwargs.keys():
+                managed = kwargs["managed"]
+            else:
+                managed = True
+
+            if managed:
+                self.manager.emit(self, *args, *kwargs)
+                return
+
         for i in range(len(self.receivers)):
-            callback = self.receivers[i].callback()
-            if callback is None:
-                del self.receivers[i]
-                i -= 1
-                continue
+            connection = self.receivers[i]
+            self.send(connection, *args)
+            
+    def send(self, connection: Connection, *args) -> bool:
+        callback = connection.callback()
+        if callback is None:
+            del connection
+            return False
 
-            signature = inspect.signature(callback)
-            num_args = len(args)
-            num_params = len(signature.parameters)
-            will_cause_error: bool = num_params != num_args
+        signature = inspect.signature(callback)
+        num_args = len(args)
+        num_params = len(signature.parameters)
+        will_cause_error: bool = num_params != num_args
 
-            if self.catch_error:
-                if will_cause_error:
-                    if self.log_warn_function is not None:
-                        self.log_warn_function(f"Failed to emit signal | Wrong argument count {num_args}, expected {num_params} | Provided arguments: {args}. Signature: {signature}")
-                else:
-                    callback(*args)
+        if self.catch_error:
+            if will_cause_error:
+                if self.log_warn_function is not None:
+                    self.log_warn_function(f"Failed to emit signal | Wrong argument count {num_args}, expected {num_params} | Provided arguments: {args}. Signature: {signature}")
             else:
                 callback(*args)
-                
-            if self.receivers[i].flags & Event.ConnectFlags.CONNECT_ONE_SHOT:
-                del self.receivers[i]
-                i -= 1
-                continue
+        else:
+            callback(*args)
+            
+        if connection.flags & Event.ConnectFlags.CONNECT_ONE_SHOT:
+            del connection
+            return False
+        
+        return True
 
 
 class TypedEvent(Event):
@@ -111,7 +166,7 @@ class TypedEvent(Event):
 
         super().connect(callback, flags)
 
-if __name__ == "__main__":
+def test_default():
     class TestObj():
         def test_cb(self, s: str):
             print(s)
@@ -149,3 +204,6 @@ if __name__ == "__main__":
         eut.emit(1, 5)
     except TypeError as e:
         print(e)
+
+if __name__ == "__main__":
+    test_default()
